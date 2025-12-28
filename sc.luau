@@ -1,4 +1,4 @@
--- UTD Hub v2.0 | Professional Edition
+-- UTD Hub v2.0 | Auto-Detect Game Data
 -- Loader: loadstring(game:HttpGet("YOUR_URL"))()
 
 repeat task.wait() until game:IsLoaded()
@@ -8,12 +8,9 @@ repeat task.wait() until Players.LocalPlayer
 local LP = Players.LocalPlayer
 local PG = LP:WaitForChild("PlayerGui")
 local CoreGui = game:GetService("CoreGui")
+local RS = game:GetService("ReplicatedStorage")
 
--- Anti-Double Load
-if _G.UTDHubLoaded then
-    warn("⚠️ UTD Hub already loaded!")
-    return
-end
+if _G.UTDHubLoaded then warn("⚠️ Already loaded!") return end
 _G.UTDHubLoaded = true
 
 print("🔄 Loading UTD Hub v2.0...")
@@ -25,8 +22,9 @@ local Config = {
     AutoSkip = false,
     AutoSpeed = false,
     AutoDungeon = false,
-    SelectedMap = "Easy",
-    SelectedDiff = "Normal",
+    SelectedMap = nil,
+    SelectedDiff = nil,
+    SelectedDungeon = nil,
     AntiBan = true,
     Humanize = true,
     MinDelay = 0.5,
@@ -39,24 +37,157 @@ local Config = {
     Playing = false,
     CurrentMacro = "",
     Macros = {},
-    RecordedActions = {},
-    GUIVisible = true
+    RecordedActions = {}
 }
 
--- Create Custom GUI
+-- Game Data Detection
+local GameData = {
+    Maps = {},
+    Difficulties = {},
+    Dungeons = {},
+    MapButtons = {},
+    DiffButtons = {},
+    DungeonButtons = {}
+}
+
+-- Scan for Maps
+local function ScanMaps()
+    GameData.Maps = {}
+    GameData.MapButtons = {}
+    
+    task.spawn(function()
+        pcall(function()
+            -- Method 1: Check PlayerGui
+            local MapSelection = PG:WaitForChild("MapSelection", 5)
+            if MapSelection then
+                for _, v in pairs(MapSelection:GetDescendants()) do
+                    if v:IsA("TextButton") or v:IsA("ImageButton") then
+                        local text = v.Text or v.Name
+                        if text ~= "" and not text:match("Close") and not text:match("Back") then
+                            if not table.find(GameData.Maps, text) then
+                                table.insert(GameData.Maps, text)
+                                GameData.MapButtons[text] = v
+                                print("✓ Found Map:", text)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- Method 2: Check ReplicatedStorage
+            if RS:FindFirstChild("Maps") then
+                for _, map in pairs(RS.Maps:GetChildren()) do
+                    local mapName = map.Name
+                    if not table.find(GameData.Maps, mapName) then
+                        table.insert(GameData.Maps, mapName)
+                        print("✓ Found Map (RS):", mapName)
+                    end
+                end
+            end
+            
+            -- Method 3: Check Workspace
+            if workspace:FindFirstChild("Maps") then
+                for _, map in pairs(workspace.Maps:GetChildren()) do
+                    local mapName = map.Name
+                    if not table.find(GameData.Maps, mapName) then
+                        table.insert(GameData.Maps, mapName)
+                        print("✓ Found Map (WS):", mapName)
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+-- Scan for Difficulties
+local function ScanDifficulties()
+    GameData.Difficulties = {}
+    GameData.DiffButtons = {}
+    
+    task.spawn(function()
+        pcall(function()
+            -- Check Difficulty Selection GUI
+            for _, gui in pairs(PG:GetDescendants()) do
+                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                    local text = gui.Text or gui.Name
+                    if text:match("Easy") or text:match("Normal") or text:match("Hard") or 
+                       text:match("Nightmare") or text:match("Expert") or text:match("Insane") then
+                        if not table.find(GameData.Difficulties, text) then
+                            table.insert(GameData.Difficulties, text)
+                            GameData.DiffButtons[text] = gui
+                            print("✓ Found Difficulty:", text)
+                        end
+                    end
+                end
+            end
+            
+            -- Default difficulties if none found
+            if #GameData.Difficulties == 0 then
+                GameData.Difficulties = {"Easy", "Normal", "Hard", "Nightmare"}
+            end
+        end)
+    end)
+end
+
+-- Scan for Dungeons
+local function ScanDungeons()
+    GameData.Dungeons = {}
+    GameData.DungeonButtons = {}
+    
+    task.spawn(function()
+        pcall(function()
+            -- Check Dungeon GUI
+            local DungeonGui = PG:FindFirstChild("DungeonGui") or PG:FindFirstChild("Dungeon")
+            if DungeonGui then
+                for _, v in pairs(DungeonGui:GetDescendants()) do
+                    if v:IsA("TextButton") or v:IsA("ImageButton") then
+                        local text = v.Text or v.Name
+                        if text ~= "" and not text:match("Close") and not text:match("Back") and not text:match("Start") then
+                            if not table.find(GameData.Dungeons, text) then
+                                table.insert(GameData.Dungeons, text)
+                                GameData.DungeonButtons[text] = v
+                                print("✓ Found Dungeon:", text)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- Check ReplicatedStorage
+            if RS:FindFirstChild("Dungeons") then
+                for _, dungeon in pairs(RS.Dungeons:GetChildren()) do
+                    local dungeonName = dungeon.Name
+                    if not table.find(GameData.Dungeons, dungeonName) then
+                        table.insert(GameData.Dungeons, dungeonName)
+                        print("✓ Found Dungeon (RS):", dungeonName)
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+-- Initialize scans
+ScanMaps()
+ScanDifficulties()
+ScanDungeons()
+
+-- Re-scan periodically
+task.spawn(function()
+    while task.wait(10) do
+        ScanMaps()
+        ScanDifficulties()
+        ScanDungeons()
+    end
+end)
+
+-- Create GUI
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "UTDHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
--- Check if running in synapse/exploit
-local parent = (syn and syn.protect_gui) and syn.protect_gui(ScreenGui) or CoreGui
-if not parent then
-    parent = PG
-end
-ScreenGui.Parent = parent
-
--- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 500, 0, 400)
@@ -67,25 +198,10 @@ MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
--- Corner
 local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 10)
 MainCorner.Parent = MainFrame
 
--- Shadow
-local Shadow = Instance.new("ImageLabel")
-Shadow.Name = "Shadow"
-Shadow.Size = UDim2.new(1, 30, 1, 30)
-Shadow.Position = UDim2.new(0, -15, 0, -15)
-Shadow.BackgroundTransparency = 1
-Shadow.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
-Shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
-Shadow.ImageTransparency = 0.5
-Shadow.ScaleType = Enum.ScaleType.Slice
-Shadow.SliceCenter = Rect.new(10, 10, 118, 118)
-Shadow.Parent = MainFrame
-
--- Top Bar
 local TopBar = Instance.new("Frame")
 TopBar.Name = "TopBar"
 TopBar.Size = UDim2.new(1, 0, 0, 40)
@@ -97,9 +213,7 @@ local TopCorner = Instance.new("UICorner")
 TopCorner.CornerRadius = UDim.new(0, 10)
 TopCorner.Parent = TopBar
 
--- Title
 local Title = Instance.new("TextLabel")
-Title.Name = "Title"
 Title.Size = UDim2.new(0, 200, 1, 0)
 Title.Position = UDim2.new(0, 15, 0, 0)
 Title.BackgroundTransparency = 1
@@ -110,9 +224,7 @@ Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = TopBar
 
--- Close Button
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Name = "CloseBtn"
 CloseBtn.Size = UDim2.new(0, 35, 0, 35)
 CloseBtn.Position = UDim2.new(1, -40, 0, 2.5)
 CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
@@ -127,9 +239,7 @@ local CloseBtnCorner = Instance.new("UICorner")
 CloseBtnCorner.CornerRadius = UDim.new(0, 8)
 CloseBtnCorner.Parent = CloseBtn
 
--- Minimize Button
 local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Name = "MinimizeBtn"
 MinimizeBtn.Size = UDim2.new(0, 35, 0, 35)
 MinimizeBtn.Position = UDim2.new(1, -80, 0, 2.5)
 MinimizeBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 110)
@@ -144,9 +254,7 @@ local MinimizeBtnCorner = Instance.new("UICorner")
 MinimizeBtnCorner.CornerRadius = UDim.new(0, 8)
 MinimizeBtnCorner.Parent = MinimizeBtn
 
--- Resize Button
 local ResizeBtn = Instance.new("TextButton")
-ResizeBtn.Name = "ResizeBtn"
 ResizeBtn.Size = UDim2.new(0, 35, 0, 35)
 ResizeBtn.Position = UDim2.new(1, -120, 0, 2.5)
 ResizeBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 110)
@@ -161,9 +269,7 @@ local ResizeBtnCorner = Instance.new("UICorner")
 ResizeBtnCorner.CornerRadius = UDim.new(0, 8)
 ResizeBtnCorner.Parent = ResizeBtn
 
--- Tab Container
 local TabContainer = Instance.new("Frame")
-TabContainer.Name = "TabContainer"
 TabContainer.Size = UDim2.new(0, 120, 1, -50)
 TabContainer.Position = UDim2.new(0, 10, 0, 45)
 TabContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
@@ -179,9 +285,7 @@ TabLayout.SortOrder = Enum.SortOrder.LayoutOrder
 TabLayout.Padding = UDim.new(0, 5)
 TabLayout.Parent = TabContainer
 
--- Content Container
 local ContentContainer = Instance.new("Frame")
-ContentContainer.Name = "ContentContainer"
 ContentContainer.Size = UDim2.new(1, -145, 1, -50)
 ContentContainer.Position = UDim2.new(0, 135, 0, 45)
 ContentContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
@@ -192,9 +296,7 @@ local ContentCorner = Instance.new("UICorner")
 ContentCorner.CornerRadius = UDim.new(0, 8)
 ContentCorner.Parent = ContentContainer
 
--- Floating Icon (when minimized)
 local FloatingIcon = Instance.new("ImageButton")
-FloatingIcon.Name = "FloatingIcon"
 FloatingIcon.Size = UDim2.new(0, 60, 0, 60)
 FloatingIcon.Position = UDim2.new(0, 10, 0.5, -30)
 FloatingIcon.BackgroundColor3 = Color3.fromRGB(50, 50, 200)
@@ -217,7 +319,7 @@ IconText.TextSize = 18
 IconText.TextColor3 = Color3.fromRGB(255, 255, 255)
 IconText.Parent = FloatingIcon
 
--- Functions
+-- UI Functions
 local function CreateTab(name, icon)
     local TabBtn = Instance.new("TextButton")
     TabBtn.Name = name .. "Tab"
@@ -247,6 +349,8 @@ local function CreateTab(name, icon)
     ContentFrame.BorderSizePixel = 0
     ContentFrame.ScrollBarThickness = 4
     ContentFrame.Visible = false
+    ContentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ContentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
     ContentFrame.Parent = ContentContainer
     
     local ContentLayout = Instance.new("UIListLayout")
@@ -258,13 +362,12 @@ local function CreateTab(name, icon)
     ContentPadding.PaddingTop = UDim.new(0, 10)
     ContentPadding.PaddingLeft = UDim.new(0, 10)
     ContentPadding.PaddingRight = UDim.new(0, 10)
+    ContentPadding.PaddingBottom = UDim.new(0, 10)
     ContentPadding.Parent = ContentFrame
     
     TabBtn.MouseButton1Click:Connect(function()
         for _, child in pairs(ContentContainer:GetChildren()) do
-            if child:IsA("ScrollingFrame") then
-                child.Visible = false
-            end
+            if child:IsA("ScrollingFrame") then child.Visible = false end
         end
         for _, btn in pairs(TabContainer:GetChildren()) do
             if btn:IsA("TextButton") then
@@ -282,7 +385,6 @@ end
 
 local function CreateSection(parent, title)
     local Section = Instance.new("Frame")
-    Section.Name = title
     Section.Size = UDim2.new(1, 0, 0, 30)
     Section.BackgroundTransparency = 1
     Section.Parent = parent
@@ -296,13 +398,10 @@ local function CreateSection(parent, title)
     SectionTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
     SectionTitle.TextXAlignment = Enum.TextXAlignment.Left
     SectionTitle.Parent = Section
-    
-    return Section
 end
 
 local function CreateToggle(parent, text, callback)
     local Toggle = Instance.new("Frame")
-    Toggle.Name = text
     Toggle.Size = UDim2.new(1, 0, 0, 35)
     Toggle.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
     Toggle.BorderSizePixel = 0
@@ -359,13 +458,10 @@ local function CreateToggle(parent, text, callback)
         end
         callback(toggled)
     end)
-    
-    return Toggle
 end
 
 local function CreateButton(parent, text, callback)
     local Button = Instance.new("TextButton")
-    Button.Name = text
     Button.Size = UDim2.new(1, 0, 0, 35)
     Button.BackgroundColor3 = Color3.fromRGB(60, 60, 200)
     Button.BorderSizePixel = 0
@@ -386,13 +482,10 @@ local function CreateButton(parent, text, callback)
         Button.BackgroundColor3 = Color3.fromRGB(60, 60, 200)
         callback()
     end)
-    
-    return Button
 end
 
-local function CreateDropdown(parent, text, options, callback)
+local function CreateDropdown(parent, text, options, callback, autoUpdate)
     local Dropdown = Instance.new("Frame")
-    Dropdown.Name = text
     Dropdown.Size = UDim2.new(1, 0, 0, 35)
     Dropdown.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
     Dropdown.BorderSizePixel = 0
@@ -405,14 +498,14 @@ local function CreateDropdown(parent, text, options, callback)
     local DropdownBtn = Instance.new("TextButton")
     DropdownBtn.Size = UDim2.new(1, 0, 1, 0)
     DropdownBtn.BackgroundTransparency = 1
-    DropdownBtn.Text = text .. ": " .. options[1]
+    DropdownBtn.Text = text .. ": " .. (#options > 0 and options[1] or "None")
     DropdownBtn.Font = Enum.Font.Gotham
     DropdownBtn.TextSize = 14
     DropdownBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
     DropdownBtn.Parent = Dropdown
     
     local DropdownList = Instance.new("Frame")
-    DropdownList.Size = UDim2.new(1, 0, 0, #options * 30)
+    DropdownList.Size = UDim2.new(1, 0, 0, 0)
     DropdownList.Position = UDim2.new(0, 0, 1, 5)
     DropdownList.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
     DropdownList.BorderSizePixel = 0
@@ -427,21 +520,44 @@ local function CreateDropdown(parent, text, options, callback)
     local ListLayout = Instance.new("UIListLayout")
     ListLayout.Parent = DropdownList
     
-    for _, option in ipairs(options) do
-        local OptionBtn = Instance.new("TextButton")
-        OptionBtn.Size = UDim2.new(1, 0, 0, 30)
-        OptionBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-        OptionBtn.BorderSizePixel = 0
-        OptionBtn.Text = option
-        OptionBtn.Font = Enum.Font.Gotham
-        OptionBtn.TextSize = 13
-        OptionBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-        OptionBtn.Parent = DropdownList
+    local function UpdateOptions(newOptions)
+        for _, child in pairs(DropdownList:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
         
-        OptionBtn.MouseButton1Click:Connect(function()
-            DropdownBtn.Text = text .. ": " .. option
-            DropdownList.Visible = false
-            callback(option)
+        if #newOptions == 0 then
+            DropdownBtn.Text = text .. ": None"
+            return
+        end
+        
+        DropdownList.Size = UDim2.new(1, 0, 0, math.min(#newOptions * 30, 150))
+        
+        for _, option in ipairs(newOptions) do
+            local OptionBtn = Instance.new("TextButton")
+            OptionBtn.Size = UDim2.new(1, 0, 0, 30)
+            OptionBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            OptionBtn.BorderSizePixel = 0
+            OptionBtn.Text = option
+            OptionBtn.Font = Enum.Font.Gotham
+            OptionBtn.TextSize = 13
+            OptionBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+            OptionBtn.Parent = DropdownList
+            
+            OptionBtn.MouseButton1Click:Connect(function()
+                DropdownBtn.Text = text .. ": " .. option
+                DropdownList.Visible = false
+                callback(option)
+            end)
+        end
+    end
+    
+    UpdateOptions(options)
+    
+    if autoUpdate then
+        task.spawn(function()
+            while task.wait(2) do
+                UpdateOptions(options)
+            end
         end)
     end
     
@@ -449,12 +565,11 @@ local function CreateDropdown(parent, text, options, callback)
         DropdownList.Visible = not DropdownList.Visible
     end)
     
-    return Dropdown
+    return Dropdown, UpdateOptions
 end
 
 local function CreateTextBox(parent, text, placeholder, callback)
     local TextBoxFrame = Instance.new("Frame")
-    TextBoxFrame.Name = text
     TextBoxFrame.Size = UDim2.new(1, 0, 0, 35)
     TextBoxFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
     TextBoxFrame.BorderSizePixel = 0
@@ -481,8 +596,6 @@ local function CreateTextBox(parent, text, placeholder, callback)
     TextBox.FocusLost:Connect(function()
         callback(TextBox.Text)
     end)
-    
-    return TextBoxFrame
 end
 
 -- Create Tabs
@@ -494,36 +607,62 @@ local SettingsTab = CreateTab("Settings", "⚙️")
 
 -- Main Tab Content
 CreateSection(MainTab, "Auto Features")
-CreateDropdown(MainTab, "Select Map", {"Easy", "Medium", "Hard", "Event"}, function(v)
+local mapDropdown, updateMapDropdown = CreateDropdown(MainTab, "Select Map", GameData.Maps, function(v)
     Config.SelectedMap = v
     print("✓ Selected Map:", v)
-end)
+end, true)
+
 CreateToggle(MainTab, "Auto Join Map", function(v)
     Config.AutoJoin = v
     print("Auto Join:", v)
 end)
+
 CreateToggle(MainTab, "Auto Retry", function(v)
     Config.AutoRetry = v
     print("Auto Retry:", v)
 end)
+
 CreateToggle(MainTab, "Auto Skip Wave", function(v)
     Config.AutoSkip = v
     print("Auto Skip:", v)
 end)
+
 CreateToggle(MainTab, "Auto Speed", function(v)
     Config.AutoSpeed = v
     print("Auto Speed:", v)
 end)
 
+CreateButton(MainTab, "Refresh Maps", function()
+    ScanMaps()
+    task.wait(0.5)
+    updateMapDropdown(GameData.Maps)
+    print("✓ Maps refreshed!")
+end)
+
 -- Dungeon Tab Content
-CreateSection(DungeonTab, "Dungeon Farming")
-CreateDropdown(DungeonTab, "Difficulty", {"Normal", "Hard", "Nightmare"}, function(v)
+CreateSection(DungeonTab, "Dungeon Selection")
+local dungeonDropdown, updateDungeonDropdown = CreateDropdown(DungeonTab, "Select Dungeon", GameData.Dungeons, function(v)
+    Config.SelectedDungeon = v
+    print("✓ Selected Dungeon:", v)
+end, true)
+
+local diffDropdown, updateDiffDropdown = CreateDropdown(DungeonTab, "Difficulty", GameData.Difficulties, function(v)
     Config.SelectedDiff = v
     print("✓ Selected Difficulty:", v)
-end)
+end, true)
+
 CreateToggle(DungeonTab, "Auto Dungeon", function(v)
     Config.AutoDungeon = v
     print("Auto Dungeon:", v)
+end)
+
+CreateButton(DungeonTab, "Refresh Dungeons", function()
+    ScanDungeons()
+    ScanDifficulties()
+    task.wait(0.5)
+    updateDungeonDropdown(GameData.Dungeons)
+    updateDiffDropdown(GameData.Difficulties)
+    print("✓ Dungeons refreshed!")
 end)
 
 -- Macro Tab Content
@@ -531,6 +670,7 @@ CreateSection(MacroTab, "Macro Recorder")
 CreateTextBox(MacroTab, "MacroName", "Enter macro name", function(v)
     Config.CurrentMacro = v
 end)
+
 CreateButton(MacroTab, "Create Macro", function()
     if Config.CurrentMacro ~= "" then
         if not Config.Macros[Config.CurrentMacro] then
@@ -541,6 +681,7 @@ CreateButton(MacroTab, "Create Macro", function()
         end
     end
 end)
+
 CreateButton(MacroTab, "Start Recording", function()
     if Config.CurrentMacro ~= "" and Config.Macros[Config.CurrentMacro] then
         Config.Recording = true
@@ -548,6 +689,7 @@ CreateButton(MacroTab, "Start Recording", function()
         print("🔴 Recording started...")
     end
 end)
+
 CreateButton(MacroTab, "Stop & Save", function()
     if Config.Recording then
         Config.Recording = false
@@ -557,6 +699,7 @@ CreateButton(MacroTab, "Stop & Save", function()
         end
     end
 end)
+
 CreateButton(MacroTab, "Play Macro", function()
     if Config.CurrentMacro ~= "" and not Config.Playing then
         Config.Playing = true
@@ -565,6 +708,7 @@ CreateButton(MacroTab, "Play Macro", function()
         Config.Playing = false
     end
 end)
+
 CreateButton(MacroTab, "Delete Macro", function()
     if Config.CurrentMacro ~= "" then
         Config.Macros[Config.CurrentMacro] = nil
@@ -577,16 +721,20 @@ CreateSection(WebhookTab, "Discord Notifications")
 CreateTextBox(WebhookTab, "WebhookURL", "Paste webhook URL", function(v)
     Config.WebhookURL = v
 end)
+
 CreateToggle(WebhookTab, "Enable Webhook", function(v)
     Config.WebhookEnabled = v
     print("Webhook:", v)
 end)
+
 CreateToggle(WebhookTab, "Notify on Win", function(v)
     Config.NotifyWin = v
 end)
+
 CreateToggle(WebhookTab, "Notify on Lose", function(v)
     Config.NotifyLose = v
 end)
+
 CreateButton(WebhookTab, "Test Webhook", function()
     print("📨 Test webhook sent!")
 end)
@@ -596,6 +744,7 @@ CreateSection(SettingsTab, "Anti-Ban Protection")
 CreateToggle(SettingsTab, "Anti-Ban", function(v)
     Config.AntiBan = v
 end)
+
 CreateToggle(SettingsTab, "Humanize Actions", function(v)
     Config.Humanize = v
 end)
@@ -603,6 +752,16 @@ end)
 CreateSection(SettingsTab, "Utilities")
 CreateButton(SettingsTab, "Rejoin Server", function()
     game:GetService("TeleportService"):Teleport(game.PlaceId, LP)
+end)
+
+CreateButton(SettingsTab, "Server Hop", function()
+    local Http = game:GetService("HttpService")
+    local TPS = game:GetService("TeleportService")
+    pcall(function()
+        local servers = Http:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
+        local server = servers.data[math.random(1, #servers.data)]
+        TPS:TeleportToPlaceInstance(game.PlaceId, server.id, LP)
+    end)
 end)
 
 -- Button Functions
@@ -632,7 +791,6 @@ ResizeBtn.MouseButton1Click:Connect(function()
     if isMaximized then
         MainFrame:TweenSizeAndPosition(originalSize, originalPosition, "Out", "Quad", 0.3, true)
         isMaximized = false
-        ResizeBtn.Text = "⛶"
     else
         originalSize = MainFrame.Size
         originalPosition = MainFrame.Position
@@ -642,21 +800,35 @@ ResizeBtn.MouseButton1Click:Connect(function()
             "Out", "Quad", 0.3, true
         )
         isMaximized = true
-        ResizeBtn.Text = "⛶"
     end
 end)
 
--- Auto Functions
+-- Auto Join Function
 task.spawn(function()
     while task.wait(1) do
-        if Config.AutoJoin then
+        if Config.AutoJoin and Config.SelectedMap then
             pcall(function()
+                -- Method 1: Use stored button
+                if GameData.MapButtons[Config.SelectedMap] then
+                    local btn = GameData.MapButtons[Config.SelectedMap]
+                    if btn and btn.Parent then
+                        for _, connection in pairs(getconnections(btn.MouseButton1Click)) do
+                            connection:Fire()
+                        end
+                        print("✓ Joined map:", Config.SelectedMap)
+                    end
+                end
+                
+                -- Method 2: Search in GUI
                 local MapSelection = PG:FindFirstChild("MapSelection")
                 if MapSelection and MapSelection.Enabled then
-                    local MapButton = MapSelection:FindFirstChild(Config.SelectedMap, true)
-                    if MapButton then
-                        for _, connection in pairs(getconnections(MapButton.MouseButton1Click)) do
-                            connection:Fire()
+                    for _, v in pairs(MapSelection:GetDescendants()) do
+                        if (v:IsA("TextButton") or v:IsA("ImageButton")) and 
+                           (v.Text == Config.SelectedMap or v.Name == Config.SelectedMap) then
+                            for _, connection in pairs(getconnections(v.MouseButton1Click)) do
+                                connection:Fire()
+                            end
+                            break
                         end
                     end
                 end
@@ -665,17 +837,26 @@ task.spawn(function()
     end
 end)
 
+-- Auto Retry Function
 task.spawn(function()
     while task.wait(2) do
         if Config.AutoRetry then
             pcall(function()
-                local Results = PG:FindFirstChild("Results")
-                if Results and Results.Enabled then
-                    local RetryButton = Results:FindFirstChild("Retry", true)
-                    if RetryButton then
-                        task.wait(math.random(10, 30) / 10)
-                        for _, connection in pairs(getconnections(RetryButton.MouseButton1Click)) do
-                            connection:Fire()
+                for _, gui in pairs(PG:GetChildren()) do
+                    -- Check multiple possible result GUI names
+                    if gui.Name:match("Result") or gui.Name:match("End") or gui.Name:match("Victory") or gui.Name:match("Defeat") then
+                        if gui.Enabled or gui.Visible then
+                            for _, v in pairs(gui:GetDescendants()) do
+                                if (v:IsA("TextButton") or v:IsA("ImageButton")) and 
+                                   (v.Text:match("Retry") or v.Text:match("Play") or v.Name:match("Retry")) then
+                                    task.wait(math.random(10, 30) / 10)
+                                    for _, connection in pairs(getconnections(v.MouseButton1Click)) do
+                                        connection:Fire()
+                                    end
+                                    print("✓ Auto retry activated")
+                                    break
+                                end
+                            end
                         end
                     end
                 end
@@ -684,16 +865,92 @@ task.spawn(function()
     end
 end)
 
+-- Auto Skip Function
 task.spawn(function()
     while task.wait(0.5) do
         if Config.AutoSkip then
             pcall(function()
-                local GameGui = PG:FindFirstChild("GameGui")
-                if GameGui then
-                    local SkipButton = GameGui:FindFirstChild("SkipWave", true)
-                    if SkipButton and SkipButton.Visible then
-                        for _, connection in pairs(getconnections(SkipButton.MouseButton1Click)) do
+                for _, gui in pairs(PG:GetChildren()) do
+                    if gui:IsA("ScreenGui") then
+                        for _, v in pairs(gui:GetDescendants()) do
+                            if (v:IsA("TextButton") or v:IsA("ImageButton")) and v.Visible and
+                               (v.Text:match("Skip") or v.Name:match("Skip")) then
+                                for _, connection in pairs(getconnections(v.MouseButton1Click)) do
+                                    connection:Fire()
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- Auto Speed Function
+task.spawn(function()
+    while task.wait(1) do
+        if Config.AutoSpeed then
+            pcall(function()
+                for _, gui in pairs(PG:GetChildren()) do
+                    if gui:IsA("ScreenGui") then
+                        for _, v in pairs(gui:GetDescendants()) do
+                            if (v:IsA("TextButton") or v:IsA("ImageButton")) and v.Visible and
+                               (v.Text:match("Speed") or v.Text:match("x") or v.Name:match("Speed")) then
+                                local currentSpeed = v.Text
+                                if not currentSpeed:match("3x") and not currentSpeed:match("2x") then
+                                    for _, connection in pairs(getconnections(v.MouseButton1Click)) do
+                                        connection:Fire()
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- Auto Dungeon Function
+task.spawn(function()
+    while task.wait(3) do
+        if Config.AutoDungeon and Config.SelectedDungeon then
+            pcall(function()
+                -- Method 1: Use stored button
+                if GameData.DungeonButtons[Config.SelectedDungeon] then
+                    local btn = GameData.DungeonButtons[Config.SelectedDungeon]
+                    if btn and btn.Parent then
+                        for _, connection in pairs(getconnections(btn.MouseButton1Click)) do
                             connection:Fire()
+                        end
+                        print("✓ Selected dungeon:", Config.SelectedDungeon)
+                    end
+                end
+                
+                -- Select difficulty
+                if Config.SelectedDiff and GameData.DiffButtons[Config.SelectedDiff] then
+                    local diffBtn = GameData.DiffButtons[Config.SelectedDiff]
+                    if diffBtn and diffBtn.Parent then
+                        task.wait(0.5)
+                        for _, connection in pairs(getconnections(diffBtn.MouseButton1Click)) do
+                            connection:Fire()
+                        end
+                    end
+                end
+                
+                -- Click Start button
+                task.wait(0.5)
+                local DungeonGui = PG:FindFirstChild("DungeonGui") or PG:FindFirstChild("Dungeon")
+                if DungeonGui then
+                    for _, v in pairs(DungeonGui:GetDescendants()) do
+                        if (v:IsA("TextButton") or v:IsA("ImageButton")) and 
+                           (v.Text:match("Start") or v.Name:match("Start")) and v.Visible then
+                            for _, connection in pairs(getconnections(v.MouseButton1Click)) do
+                                connection:Fire()
+                            end
+                            print("✓ Started dungeon")
+                            break
                         end
                     end
                 end
@@ -704,11 +961,26 @@ end)
 
 -- Show first tab
 MainTab.Visible = true
-TabContainer:GetChildren()[1].BackgroundColor3 = Color3.fromRGB(60, 60, 200)
-TabContainer:GetChildren()[1].TextColor3 = Color3.fromRGB(255, 255, 255)
+for _, btn in pairs(TabContainer:GetChildren()) do
+    if btn:IsA("TextButton") then
+        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 200)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        break
+    end
+end
+
+-- Initial scan after GUI loads
+task.wait(2)
+ScanMaps()
+ScanDifficulties()
+ScanDungeons()
 
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 print("✓ UTD HUB V2.0 LOADED!")
 print("✓ GUI Created Successfully")
-print("✓ All Features Ready")
-print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("✓ Auto-Detection Active")
+print("✓ Found", #GameData.Maps, "Maps")
+print("✓ Found", #GameData.Difficulties, "Difficulties")
+print("✓ Found", #GameData.Dungeons, "Dungeons")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")acro] then
+            Config.Macros[Config.CurrentM
