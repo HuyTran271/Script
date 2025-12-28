@@ -240,7 +240,7 @@ for _,w in ipairs(Workers)do task.spawn(w)end
 LP.OnTeleport:Connect(function(s)
     if C.mal and s==Enum.TeleportState.Started then 
         SD()
-        queue_on_teleport([[loadstring(game:HttpGet("YOUR_URL_HERE"))()]])
+        queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/HuyTran271/Script/refs/heads/main/sc.luau?token=GHSAT0AAAAAADR2HZV6PHAVLTRIW257DIZE2KQU7AA"))()]])
     end
 end)
 
@@ -249,4 +249,5 @@ if C.we then SW("Loaded 🚀","UTD Hub ready!",3447003)end
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 print("UTD HUB V2.0 | LOADED ✓")
 print("Status: Protected & Ready")
+
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
